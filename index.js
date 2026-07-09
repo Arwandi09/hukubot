@@ -39,14 +39,22 @@ async function startBot() {
         await delay(3000); 
 
         try {
-            // Force Baileys to use our static code from config.json 
-            // (Memaksa Baileys menggunakan kode statis kita dari config.json)
-            const targetCode = config.pairing.code || "12345678";
-            
-            // Intercept internal registration to enforce our custom code 
-            // (Mencegat registrasi internal untuk memberlakukan kode kustom)
-            sock.authState.creds.pairingCode = targetCode;
-            await sock.requestPairingCode(phoneNumber);
+            // Ambil kode custom dari config.json
+            // (Fetch custom code from config.json)
+            let targetCode = String(config.pairing.code || '12345678').toUpperCase();
+
+            // WhatsApp mewajibkan kode pairing custom persis 8 karakter (huruf/angka).
+            // (WhatsApp requires the custom pairing code to be exactly 8 characters)
+            if (targetCode.length !== 8) {
+                console.log(`\x1b[31m[!] Kode di config.json harus 8 karakter, dipotong/di-pad otomatis. (Code in config.json must be 8 chars, auto-adjusted.)\x1b[0m`);
+                targetCode = (targetCode + '12345678').slice(0, 8);
+            }
+
+            // Kode custom WAJIB dikirim sebagai argumen kedua requestPairingCode,
+            // bukan lewat sock.authState.creds (itu diabaikan oleh Baileys).
+            // (The custom code MUST be passed as requestPairingCode's 2nd argument,
+            // not via sock.authState.creds — Baileys ignores that field.)
+            const code = await sock.requestPairingCode(phoneNumber, targetCode);
             
             console.clear();
             console.log(`\n\x1b[32m┌────────────────────────────────────────┐\x1b[0m`);
