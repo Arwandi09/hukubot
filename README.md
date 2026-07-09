@@ -5,4 +5,4 @@
 
 
 Speed and light
-This Simple Bot is made from Neoxr-bot, using WhiskeySockets/baileys
+This Simple Bot is made using WhiskeySockets/baileys
