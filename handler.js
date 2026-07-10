@@ -1,41 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import initListenersExtra, { getAccountKey } from './lib/listeners-extra.js';
+import initListenersExtra, { getAccountKey, simpanPesanKeMemori } from './lib/listeners-extra.js';
 
 const configPath = path.join(process.cwd(), 'config.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
 const TARGET = '6285161098098@s.whatsapp.net';
-const DB_PATH = path.join(process.cwd(), 'database_pesan.json');
-
-// Helper: Menulis data ke database JSON lokal (Fungsi ini wajib ada di paling atas)
-// PENTING: struktur database di-nest per akun (accountKey -> msgId -> msgData),
-// SAMA PERSIS dengan cara listeners-extra.js membacanya lewat ambilPesanDariDB().
-// Sebelumnya ini nulis flat (db[msgId] = ...), jadi listeners-extra.js yang
-// membaca db[accountKey][msgId] tidak pernah menemukan datanya — itu sebabnya
-// anti-delete kelihatan tidak jalan sama sekali.
-const simpanKeDatabase = (accountKey, msgId, msgData) => {
-    try {
-        let db = {};
-        if (fs.existsSync(DB_PATH)) {
-            db = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
-        }
-
-        if (!db[accountKey]) db[accountKey] = {};
-        db[accountKey][msgId] = msgData;
-
-        // Batasi ukuran database PER AKUN agar file tidak membengkak
-        // (Maksimal 2000 pesan terakhir per akun, bukan global)
-        const keys = Object.keys(db[accountKey]);
-        if (keys.length > 2000) {
-            delete db[accountKey][keys[0]];
-        }
-
-        fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
-    } catch (e) {
-        console.error('Gagal menulis database pesan:', e);
-    }
-};
 
 export async function messageHandler(sock, m, plugins) {
     // Daftarkan listener tambahan (antidelete, auto-reject call, welcome/leave)
@@ -50,10 +20,12 @@ export async function messageHandler(sock, m, plugins) {
     const isGroup = from.endsWith('@g.us');
     const isStatus = from === 'status@broadcast';
 
-    // ─── LANGKAH 1: REKAM SEMUA PESAN MASUK KE BLACKBOX ───
+    // ─── LANGKAH 1: REKAM SEMUA PESAN MASUK KE MEMORI (buat anti-delete) ───
+    // Sekarang in-memory (Map), BUKAN tulis file lagi — biar tidak ada race
+    // condition antar pesan yang masuk hampir bersamaan (penyebab "terskip").
     const isDeleteAction = m.message?.protocolMessage && m.message.protocolMessage.type === 3;
     if (!isDeleteAction) {
-        simpanKeDatabase(getAccountKey(sock), m.key.id, m);
+        simpanPesanKeMemori(getAccountKey(sock), m.key.id, m);
     }
 
     // ─── LANGKAH 2: FILTER & DETEKSI JENIS KONTEN UNTUK LOG TERMINAL ───

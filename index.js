@@ -10,6 +10,17 @@ import { messageHandler } from './handler.js';
 const configPath = path.join(process.cwd(), 'config.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
+// Global safety net: JANGAN biarkan satu error tak tertangani (misalnya gagal
+// kirim pesan karena koneksi terputus) mematikan SELURUH proses bot.
+// Tanpa ini, Node.js akan crash total begitu ada unhandled rejection
+// (persis seperti error 'Connection Closed' / statusCode 428 di jadibot).
+process.on('unhandledRejection', (reason) => {
+    console.error('\x1b[31m[ UNHANDLED REJECTION ] Bot tetap jalan, error diabaikan:\x1b[0m', reason?.message || reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('\x1b[31m[ UNCAUGHT EXCEPTION ] Bot tetap jalan, error diabaikan:\x1b[0m', err?.message || err);
+});
+
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('session');
     
@@ -39,21 +50,13 @@ async function startBot() {
         await delay(3000); 
 
         try {
-            // Ambil kode custom dari config.json
-            // (Fetch custom code from config.json)
             let targetCode = String(config.pairing.code || '12345678').toUpperCase();
 
-            // WhatsApp mewajibkan kode pairing custom persis 8 karakter (huruf/angka).
-            // (WhatsApp requires the custom pairing code to be exactly 8 characters)
             if (targetCode.length !== 8) {
                 console.log(`\x1b[31m[!] Kode di config.json harus 8 karakter, dipotong/di-pad otomatis. (Code in config.json must be 8 chars, auto-adjusted.)\x1b[0m`);
                 targetCode = (targetCode + '12345678').slice(0, 8);
             }
 
-            // Kode custom WAJIB dikirim sebagai argumen kedua requestPairingCode,
-            // bukan lewat sock.authState.creds (itu diabaikan oleh Baileys).
-            // (The custom code MUST be passed as requestPairingCode's 2nd argument,
-            // not via sock.authState.creds — Baileys ignores that field.)
             const code = await sock.requestPairingCode(phoneNumber, targetCode);
             
             console.clear();
@@ -109,7 +112,11 @@ async function startBot() {
     // (Oper pesan masuk langsung ke handler.js)
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
-        await messageHandler(sock, messages[0], plugins);
+        try {
+            await messageHandler(sock, messages[0], plugins);
+        } catch (e) {
+            console.error('\x1b[31m[ SYSTEM ] Error saat handle pesan:\x1b[0m', e?.message || e);
+        }
     });
 }
 
